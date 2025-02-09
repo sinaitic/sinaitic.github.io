@@ -2951,12 +2951,6 @@ use.stop-animation {
 .social .item.github i {
   color: #191717;
 }
-.social .item.email::before {
-  background-color: #55acd5;
-}
-.social .item.email i {
-  color: #55acd5;
-}
 .social .item.about::before {
   background-color: #3b5998;
 }
