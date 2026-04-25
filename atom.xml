@@ -8,8 +8,85 @@
     <author>
       <name>sinaitic</name>
     </author>
-    <updated>2025-02-08T07:41:11.698Z</updated>
+    <updated>2026-04-25T08:57:04.000Z</updated>
     <category term="算法 | LLM" />
+    <entry>
+        <id>https://sinaitic.github.io/2026/04/25/attn/</id>
+        <title>attn</title>
+        <link rel="alternate" href="https://sinaitic.github.io/2026/04/25/attn/"/>
+        <content type="html">&lt;h1 id=&#34;MHA&#34;&gt;&lt;a href=&#34;#MHA&#34; class=&#34;headerlink&#34; title=&#34;MHA&#34;&gt;&lt;/a&gt;MHA&lt;/h1&gt;&lt;p&gt;多头注意力机制测试。&lt;/p&gt;
+&lt;p&gt;图片如下&lt;/p&gt;
+&lt;p&gt;&lt;img loading=&#34;lazy&#34; data-src=&#34;/2026/04/25/attn/mha.png&#34; alt=&#34;图片&#34;&gt;&lt;/p&gt;
+&lt;p&gt;代码测试&lt;/p&gt;
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;class Attention(nn.Module):
+    def __init__(self,config,hidden_dim=None):
+        super().__init__()
+        hidden_dim=config.embed_dim if hidden_dim is None else hidden_dim
+        self.n_heads=config.n_heads
+        self.n_kv_heads=config.n_kv_heads
+        assert self.n_heads%self.n_kv_heads==0
+        self.n_groups=self.n_heads//self.n_kv_heads
+        self.head_dim=hidden_dim//self.n_heads
+        self.wq=nn.Linear(hidden_dim,self.n_heads*self.head_dim)
+        self.wk=nn.Linear(hidden_dim,self.n_kv_heads*self.head_dim)
+        self.wv=nn.Linear(hidden_dim,self.n_kv_heads*self.head_dim)
+        self.dropout_attn=nn.Dropout(config.dropout)
+        self.dropout_resid=nn.Dropout(config.dropout)
+        self.dropout_p=config.dropout
+        self.wo=nn.Linear(hidden_dim,hidden_dim)
+    
+        self.is_flash=hasattr(F,&amp;#39;scaled_dot_product_attention&amp;#39;) and config.is_flash # 默认使用flash_attention
+
+    def forward(self,x,
+                position_embeddings: Tuple[torch.Tensor, torch.Tensor] = None,  # 修改为接收cos和sin
+                q=None,k=None,v=None,key_padding_mask=None):
+        # bsz,seq_len,embed_dim=x.shape,bsz*seq_len,patch_num,embed_dim=x.shape
+        if q is None:
+            xq,xk,xv=self.wq(x),self.wk(x),self.wv(x)
+        else:
+            xq,xk,xv=self.wq(q),self.wk(k),self.wv(v)
+        xq=xq.view(*xq.shape[:-1],self.n_heads,self.head_dim).permute(0,2,1,3)
+        xk=xk.view(*xk.shape[:-1],self.n_kv_heads,self.head_dim).permute(0,2,1,3)
+        xv=xv.view(*xv.shape[:-1],self.n_kv_heads,self.head_dim).permute(0,2,1,3)
+        if self.n_groups!=1:
+            xk,xv=(
+                xk.repeat_interleave(self.n_groups,dim=-3),
+                xv.repeat_interleave(self.n_groups,dim=-3)
+            )
+        if position_embeddings is not None:
+            cos, sin = position_embeddings
+            xq, xk = apply_rotary_emb(xq, xk, cos, sin)
+
+        # 处理key_padding_mask
+        attn_mask = None
+        if key_padding_mask is not None:
+            # key_padding_mask: [bsz, seq_len], True表示mask掉
+            # 需要转换为 [bsz, 1, 1, seq_len] 以便广播
+            attn_mask = key_padding_mask.unsqueeze(1).unsqueeze(2)  # [bsz, 1, 1, seq_len]
+            # 使用-1e4而非-inf，避免AMP混合精度下的数值问题
+            # FP16的最小值约为-65504，使用-1e4足够大且安全
+            attn_mask = attn_mask.float().masked_fill(attn_mask, -1e4)
+
+        if self.is_flash:
+            dropout_p = self.dropout_p if self.training else 0.0
+            out=F.scaled_dot_product_attention(xq,xk,xv,attn_mask=attn_mask,dropout_p=dropout_p,is_causal=False)
+        else:
+            scores=xq@xk.transpose(-2,-1)/math.sqrt(self.head_dim)
+            if attn_mask is not None:
+                scores = scores + attn_mask
+            logits=F.softmax(scores,dim=-1)
+            out=self.dropout_attn(logits)@xv
+
+        out=out.transpose(1,2)
+        out=out.reshape(*out.shape[:-2],-1)
+        out=self.dropout_resid(self.wo(out))
+        return out
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;公式测试&lt;br&gt;$$&lt;br&gt;\text{MultiHead}(Q, K, V) &amp;#x3D; \text{Concat}(\text{head}_1, \dots, \text{head}_h)W^O&lt;br&gt;$$&lt;/p&gt;
+</content>
+        <category term="llm-modules" scheme="https://sinaitic.github.io/tags/llm-modules/" />
+        <updated>2026-04-25T08:57:04.000Z</updated>
+    </entry>
     <entry>
         <id>https://sinaitic.github.io/2025/02/08/hello-world/</id>
         <title>Hello World</title>
